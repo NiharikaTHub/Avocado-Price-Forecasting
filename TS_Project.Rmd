@@ -1,0 +1,1382 @@
+---
+title:    "MTH783P Final Project"
+author:   "Thakur, 231107530, n.thakur@se23.qmul.ac.uk"
+abstract: "This report presents a comprehensive analysis of organic avocado price
+  trends and forecasting models for the California and Syracuse regions. Beginning
+  with data preparation and exploratory analysis, I identified influential factors
+  and selected regions with consistent data for in-depth modeling. Leveraging time
+  series analysis techniques, including ARIMA, Exponential Smoothing, Holt-Winters,
+  and Neural Networks, I have modeled and evaluated forecasting models tailored to
+  each region’s characteristics. Model selection was guided by diagnostic tests and
+  accuracy metrics, with Neural network model chosen for California and Exponential
+  Smoothing model for Syracuse. The selected models demonstrated reasonable accuracy
+  in predicting avocado price fluctuations, providing valuable insights for analyzing
+  the organic avocado market landscape. It underscores the importance of robust modeling
+  approaches and data-driven insights for navigating the dynamic avocado market landscape."
+date:     "Last compiled on:   `r format(Sys.time(), '%d %B, %Y')`"
+output:   pdf_document
+fontsize: 12pt
+header-includes:
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{lmodern}
+  \usepackage{lipsum}
+  \usepackage{fancyhdr}
+  \pagestyle{fancy}
+  \renewcommand{\headrulewidth}{0pt}
+  \fancyhf{}
+  \fancyfoot[C]{\twopagenumbers}
+  \fancypagestyle{plain}{
+    \renewcommand{\headrulewidth}{0pt}
+    \fancyhf{}
+    \fancyfoot[C]{\twopagenumbers}
+  }
+  \usepackage[user]{zref}
+  \newcounter{pageaux}
+  \def\currentauxref{PAGEAUX1}
+  \newcommand{\twopagenumbers}{
+    \stepcounter{pageaux}
+    \thepageaux\, of\, \ref{\currentauxref}
+  }
+  \makeatletter
+  \newcommand{\resetpageaux}{
+    \clearpage
+    \edef\@currentlabel{\thepageaux}\label{\currentauxref}
+    \xdef\currentauxref{PAGEAUX\thepage}
+    \setcounter{pageaux}{0}}
+  \AtEndDvi{\edef\@currentlabel{\thepageaux}\label{\currentauxref}}
+  \makeatletter
+---
+
+
+<!--
+#########################################################
+###         DO NOT CHANGE the following code          ###
+#########################################################
+-->
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+\thispagestyle{empty}
+\newpage
+\setcounter{page}{1}
+
+<!--
+#########################################################
+###      Start writing your report from line 61       ###
+#########################################################
+-->
+
+# Avocado Price Analysis and Forecasting Report
+
+## Introduction:
+
+Avocado consumption surged in recent years, driven by its popularity as a healthy and versatile fruit. Analyzing and forecasting avocado prices is crucial for stakeholders in the avocado industry. In this report, I analyzed avocado price trends, identified influential factors, and developed forecasting models for the California and Syracuse regions.
+
+## Data Preparation and Exploration:
+
+I initiated the analysis by importing the avocado dataset which comprises weekly average avocado prices from 2015 to 2018 for various US cities and performed an exploratory data analysis (EDA) to understand the data's structure and distributions. Initial data preparation steps included renaming columns for clarity, adjusting date formats, and addressing missing values. Given the presence of missing values, I examined their distribution across regions and time periods, leading to the decision to impute these values using median imputation. The dataset was then divided into training and test sets, with the training set encompassing data from up to December 2017 and the test set covering January to March 2018, aiming to forecast the average unit price of avocados in the first 10 weeks of 2018. Subsequently, I conducted a detailed EDA on the training dataset to gain insights into avocado market dynamics prior to modeling and forecasting.
+
+<!--
+#########################################################################################
+The below code block is used to generate a boxplot showing the distribution of average 
+avocado prices based on type and year. The resulting plot is saved as "p1.png". 
+#########################################################################################
+-->
+
+```{r, out.width="300px", include=FALSE}
+
+# Loading the necessary packages
+library(dplyr)
+library(MLmetrics)
+library(tseries)
+library(ggplot2)
+library(forecast)
+library(TTR)
+
+# Reading the CSV file
+
+avocado <- read.csv("avocado.csv")
+
+# Renaming the columns
+
+names(avocado)[names(avocado) == 'AveragePrice'] <- 'Average_Price'
+names(avocado)[names(avocado) == 'Total.Bags'] <- 'Total_Bags'
+names(avocado)[names(avocado) == 'Total.Volume'] <- 'Total_Volume'
+names(avocado)[names(avocado) == 'Small.Bags'] <- 'Small_Bags'
+names(avocado)[names(avocado) == 'Large.Bags'] <- 'Large_Bags'
+names(avocado)[names(avocado) == 'XLarge.Bags'] <- 'XLarge_Bags'
+names(avocado)[names(avocado) == 'type'] <- 'Type'
+names(avocado)[names(avocado) == 'year'] <- 'Year'
+names(avocado)[names(avocado) == 'region'] <- 'Region'
+
+# Converting the 'Date' column to Date format
+avocado$Date <- as.Date(avocado$Date, format = "%Y-%m-%d")
+
+# Extracting and adding new columns for month, day, year, and day of the week
+avocado$Year <- as.integer(format(avocado$Date, "%Y"))  # Converting to integer
+avocado$Month <- as.integer(format(avocado$Date, "%m")) # Converting to integer
+avocado$Day <- as.integer(format(avocado$Date, "%d"))   # Converting to integer
+
+# Calculating the median of the Average_Price column
+median_price <- median(avocado$Average_Price, na.rm = TRUE)
+
+# Replacing the missing values in Average_Price with the calculated median
+avocado$Average_Price[is.na(avocado$Average_Price)] <- median_price
+
+avocado_train <- avocado[avocado$Date <= as.Date("2017-12-31"), ]
+avocado_test <- avocado[avocado$Date > as.Date("2017-12-31"), ]
+
+# calculating the distribution of average price of the avocado based on year and type
+
+p <- ggplot(avocado_train, aes(x = Type, y = Average_Price)) +
+  geom_boxplot(aes(colour = as.factor(Year))) +
+  xlab("Type") +
+  ylab("Average Price")
+
+# Save the plot
+ggsave("p1.png", plot = p)
+
+```
+
+![Avocado Distribution](p1.png){width=450px}
+
+## Exploratory Data Analysis(EDA) & Selection of Regions:
+
+In this analysis, I'm focusing on the **California**, being a major avocado-producing region, provides insights into the dynamics of a larger market, while **Syracuse** offers a glimpse into the effects of smaller market fluctuations. The analysis reveals that California exhibits less price sensitivity compared to Syracuse, primarily due to its higher demand and supply. Syracuse, characterized by lower sales volumes, displays a higher price sensitivity, which is evident in both organic and conventional avocado prices. Notably, organic avocado prices in Syracuse experienced a significant drop in mid-2017, coinciding with an increase in sales volume, highlighting the market's responsiveness to changes. Given the consistent patterns observed for both organic and conventional avocado types across the California and Syracuse regions, the focus was shifted to modeling the average avocado price for **Organic** types. This decision was made due to the slightly higher sensitivity of organic avocados to market dynamics, as evidenced by the observed price fluctuations in Syracuse. This approach allows for a more generalized model that captures regional trends comprehensively, considering the broader implications of organic avocado prices on the market.
+
+<!--
+#########################################################################################
+The below code block generates plots showing the trends in average avocado prices and total 
+volumes over time for both conventional and organic avocados in Syracuse and California. 
+The resulting plots are saved as "p2.png" and "p3.png". 
+#########################################################################################
+-->
+
+```{r, out.width="300px", include=FALSE}
+
+library(ggplot2)
+library(gridExtra)
+
+# Extracting the organic and conventional avocado datasets for California region
+organic_california_train <- avocado_train[avocado_train$Type == "organic" & avocado_train$Region == "California", c("Date", "Average_Price", "Type", "Total_Volume", "Region", "Month", "Year")]
+conventional_california_train <- avocado_train[avocado_train$Type == "conventional" & avocado_train$Region == "California", c("Date", "Average_Price", "Type", "Total_Volume", "Region", "Month", "Year")]
+
+organic_california_test <- avocado_test[avocado_test$Type == "organic" & avocado_test$Region == "California", c("Date", "Average_Price", "Type", "Region", "Month", "Year")]
+conventional_california_test <- avocado_test[avocado_test$Type == "conventional" & avocado_test$Region == "California", c("Date", "Average_Price", "Type", "Total_Volume", "Region", "Month", "Year")]
+
+# Extracting the organic and conventional avocado datasets for Syracuse region
+organic_syracuse_train <- avocado_train[avocado_train$Type == "organic" & avocado_train$Region == "Syracuse", c("Date", "Average_Price", "Type", "Total_Volume", "Region", "Month", "Year")]
+conventional_syracuse_train <- avocado_train[avocado_train$Type == "conventional" & avocado_train$Region == "Syracuse", c("Date", "Average_Price", "Type", "Total_Volume", "Region", "Month", "Year")]
+
+organic_syracuse_test <- avocado_test[avocado_test$Type == "organic" & avocado_test$Region == "Syracuse", c("Date", "Average_Price", "Type", "Total_Volume", "Region", "Month", "Year")]
+conventional_syracuse_test <- avocado_test[avocado_test$Type == "conventional" & avocado_test$Region == "Syracuse", c("Date", "Average_Price", "Type", "Total_Volume", "Region", "Month", "Year")]
+
+
+# Conventional avocados in Syracuse
+conventional_syracuse_price <- conventional_syracuse_train %>% 
+  ggplot(aes(x = Date, y = Average_Price)) + 
+  geom_line(color = "blue") + 
+  geom_smooth(color = "red") +
+  labs(title = "Conventional Avocados Syracuse") +
+  xlab("Date") + ylab("Average Price")
+
+conventional_syracuse_vol <- conventional_syracuse_train %>% 
+  ggplot(aes(x = Date, y = Total_Volume)) + 
+  geom_bar(stat = "identity", fill = "blue") +
+  geom_smooth(color = "red") +
+  xlab("Date") + ylab("Total Volume")
+
+# Organic avocados in Syracuse
+organic_syracuse_price <- organic_syracuse_train %>% 
+  ggplot(aes(x = Date, y = Average_Price)) + 
+  geom_line(color = "green") +
+  geom_smooth(color = "red") + 
+  labs(title = "Organic Avocados Syracuse") +
+  xlab("Date") + ylab("Average Price")
+
+organic_syracuse_vol <- organic_syracuse_train %>% 
+  ggplot(aes(x = Date, y = Total_Volume)) + 
+  geom_bar(stat = "identity", fill = "green") +
+  geom_smooth(color = "red") +
+  xlab("Date") + ylab("Total Volume")
+
+# Combine the plots using plot_grid from gridExtra
+syracuse_plots <- grid.arrange(conventional_syracuse_price, organic_syracuse_price, conventional_syracuse_vol, organic_syracuse_vol, ncol = 2)
+
+# Save the plot as p1.png
+ggsave("p2.png", plot = syracuse_plots, width = 10, height = 8)
+
+# Conventional avocados in California
+conventional_cali_price <- conventional_california_train %>% 
+  ggplot(aes(x = Date, y = Average_Price)) + 
+  geom_line(color = "blue") + 
+  geom_smooth(color = "red") + 
+  labs(title = "Conventional Avocados California") + 
+  xlab("Date") + ylab("Average Price")
+
+conventional_cali_vol <- conventional_california_train %>% 
+  ggplot(aes(x = Date, y = Total_Volume)) + 
+  geom_bar(stat = "identity", fill = "blue") + 
+  geom_smooth(color = "red") + 
+  xlab("Date") + ylab("Total Volume")
+
+# Organic avocados in California  
+organic_cali_price <- organic_california_train %>% 
+  ggplot(aes(x = Date, y = Average_Price)) + 
+  geom_line(color = "green") + 
+  geom_smooth(color = "red") + 
+  labs(title = "Organic Avocados California") + 
+  xlab("Date") + ylab("Average Price")
+
+organic_cali_vol <- organic_california_train %>% 
+  ggplot(aes(x = Date, y = Total_Volume)) + 
+  geom_bar(stat = "identity", fill = "green") + 
+  geom_smooth(color = "red") + 
+  xlab("Date") + ylab("Total Volume")
+
+# Combine the plots using plot_grid from gridExtra
+california_plots <- grid.arrange(conventional_cali_price, organic_cali_price, conventional_cali_vol, organic_cali_vol, ncol = 2)
+
+# Save the plot as p2.png
+ggsave("p3.png", plot = california_plots, width = 10, height = 8)
+
+```
+
+![Syracuse Organic Distribution](p2.png){width=310px} ![California Organic Distribution](p3.png){width=310px}
+
+## Modeling Approach:
+
+The modeling approach for forecasting avocado prices in the California and Syracuse regions was guided by the characteristics of the data, including seasonality, trend, and stationarity. A comprehensive analysis was conducted using ARIMA, Exponential Smoothing (SES), Holt-Winters (HW), and Neural Network models. The selection of these models was based on their ability to accurately capture the time series dynamics of avocado prices, with a focus on minimizing forecast errors and maximizing model generalizability. Specifically, the focus is on the **Root Mean Square Error (RMSE) and Mean Absolute Percentage Error (MAPE) metrics** while selecting the best model for each region. This approach ensures that the chosen models not only capture the trends and patterns in the data but also provide the most accurate forecasts possible.
+
+## Model Selection and Performance:
+
+For the **California** region of the organic type, the **Neural Network Model emerged as the most suitable choice**, demonstrating the lowest RMSE(0.177) and MAPE(8.45%), indicating its effectiveness in capturing trends and patterns in the data. This model's superior performance in forecasting avocado prices in California was validated through accuracy tests, including residual analysis which confirmed the model's adequacy and robustness. The neural network model assumes independence of observations, normalized input data, meaningful feature representation, and sufficient training data, suggests accurate forecasts with a p-value of 0.6593 from the Ljung-Box test, indicating the model's assumptions are likely satisfied. However, its complexity and potential for overfitting, along with higher computational demands, may limit its applicability and interpretability.
+
+In contrast, for the **Syracuse** region of the organic type, the **SES Model showed superior performance**, with a significantly lower RMSE(0.083) and MAPE(4.28%) compared to the other models. This model's ability to accurately predict the average price of avocados in Syracuse, with a relatively low error in both RMSE and MAPE, suggests its effectiveness in capturing the specific trends and patterns in the Syracuse data. The SES model for the Syracuse region, based on its stationarity, absence of seasonality and trend, and the Ljung-Box test's p-value of 0.1881, suggests accurate forecasts, but its simplicity and assumptions may limit its effectiveness in complex scenarios and generalizability across different regions or data types.
+
+Table: Summary of avocado price forecasting models for different regions and avocado types
+
+| Region    | Type    | Model          | RMSE   | MAPE   |
+|-----------|---------|----------------|--------|--------|
+| California| Organic | ARIMA          | 0.183  | 10.02% |
+| California| Organic | SES            | 0.190  | 10.40% |
+| California| Organic | Holt-Winters   | 0.199  | 11.00% |
+| **California**| **Organic** | **Neural Network** | **0.177**  | **8.45%**  |
+| Syracuse  | Organic | ARIMA          | 0.257  | 19.23% |
+| **Syracuse**  | **Organic** | **SES**            | **0.083**  | **4.28%**  |
+| Syracuse  | Organic | Holt-Winters   | 0.197  | 13.08% |
+| Syracuse  | Organic | Neural Network | 0.272  | 20.46% |
+
+
+## Conclusion:
+
+In conclusion, the analysis underscores the critical role of accurate forecasting models in navigating the volatile avocado market. By leveraging advanced time series analysis techniques and selecting models that best capture the unique characteristics of the data, we can make informed decisions and adapt to changing market conditions effectively. The findings of this study highlight the importance of continuous model evaluation and improvement to ensure the reliability and accuracy of avocado price forecasts.
+
+
+<!--
+#########################################################
+### DO NOT CHANGE the code until the section 'R code' ###
+#########################################################
+-->
+
+
+\newpage
+\thispagestyle{empty}
+\begin{center}
+\Huge \bf [END of the REPORT]
+\end{center}
+
+
+\resetpageaux
+\renewcommand{\thepageaux}{R-\arabic{pageaux}}
+
+
+
+# R code
+
+<!--
+#########################################################
+###              Start typing from here               ###
+#########################################################
+-->
+
+
+
+```{r, message=FALSE}
+# Loading the necessary packages
+library(dplyr)
+library(MLmetrics)
+library(tseries)
+library(ggplot2)
+library(forecast)
+library(TTR)
+```
+
+
+```{r}
+# Setting the seed for reproducibility
+set.seed(123) 
+
+# Reading the CSV file
+avocado <- read.csv("avocado.csv")
+head(avocado)
+```
+# Data Preperation
+```{r}
+# Checking the minimum and maximum date values
+min(avocado$Date)
+max(avocado$Date)
+```
+
+```{r}
+# Removing the 'X.1' and 'X' column
+avocado <- avocado[, -c(1, 2)]
+```
+
+```{r}
+# Renaming the columns
+names(avocado)[names(avocado) == 'AveragePrice'] <- 'Average_Price'
+names(avocado)[names(avocado) == 'Total.Bags'] <- 'Total_Bags'
+names(avocado)[names(avocado) == 'Total.Volume'] <- 'Total_Volume'
+names(avocado)[names(avocado) == 'Small.Bags'] <- 'Small_Bags'
+names(avocado)[names(avocado) == 'Large.Bags'] <- 'Large_Bags'
+names(avocado)[names(avocado) == 'XLarge.Bags'] <- 'XLarge_Bags'
+names(avocado)[names(avocado) == 'type'] <- 'Type'
+names(avocado)[names(avocado) == 'year'] <- 'Year'
+names(avocado)[names(avocado) == 'region'] <- 'Region'
+```
+
+```{r}
+# Checking the datatype of each column
+str(avocado)
+```
+
+```{r}
+# Converting the 'Date' column to Date format
+avocado$Date <- as.Date(avocado$Date, format = "%Y-%m-%d")
+
+# Extracting and adding new columns for year, month and day
+avocado$Year <- as.integer(format(avocado$Date, "%Y"))  # Converting to integer
+avocado$Month <- as.integer(format(avocado$Date, "%m")) # Converting to integer
+avocado$Day <- as.integer(format(avocado$Date, "%d"))   # Converting to integer
+
+# Checking the first few rows to ensure the changes are correct
+head(avocado)
+```
+
+### Let us look at the duplicates and null values:
+
+```{r}
+# Getting the missing values for each column
+na_count <- sapply(avocado, function(x) sum(is.na(x)))
+
+# Printing the missing values for each column
+for (col_name in names(na_count)) {
+  cat(paste(col_name, ":", na_count[col_name], "\n"))
+}
+```
+There are around **1728** missing values present in **Average_Price** column.
+
+### Understanding the scope and pattern of missing data:
+* Missing Data Distribution: Plotting missing values to identify where and when they occur.
+* Relationship with Other Variables: Checking if missing data is related to specific time periods, regions, or types of avocado.
+
+```{r, fig.width=3, fig.height=3, fig.align='center'}
+# Creating a column 'Average_Price_Missing' indicating missing values
+avocado$Average_Price_Missing <- is.na(avocado$Average_Price)
+
+# Plotting missing values over time
+ggplot(avocado, aes(x = Date)) +
+  geom_point(aes(y = as.numeric(Average_Price_Missing)), 
+             alpha = 0.5, color = "red") +
+  labs(title = "Missing Average_Price over Time",
+       x = "Date",
+       y = "Missing (1 = Missing, 0 = Not Missing)") +
+  theme_minimal()+ theme(text = element_text(size = 8))
+```
+From the above plot we can see the missing values are present uniformly across all years.
+
+```{r}
+# Checking the Overall distribution of 'Average_Price'
+summary(avocado$Average_Price)
+```
+
+
+```{r, fig.height=3, fig.align='center', warning=FALSE}
+# Plot a histogram to check distribution
+ggplot(avocado, aes(x = Average_Price)) +
+  geom_histogram(binwidth = 0.1, fill = "blue", color = "black") +
+  labs(title = "Distribution of Average Price", x = "Average Price", y = "Frequency")
+```
+The above distribution seems slightly right skewed and most of the avocados have an average price of [1-1.5].
+
+```{r, fig.width=3, fig.height=3, fig.align='center', warning=FALSE}
+# Plot a box plot to identify outliers
+ggplot(avocado, aes(x = "", y = Average_Price)) +
+  geom_boxplot() +
+  labs(title = "Box Plot of Average Price", x = "", y = "Average Price")
+```
+It seems there are outliers present in average price column around the average price 3.
+
+```{r}
+# Checking if missing data is associated with specific regions
+region_missing <- aggregate(avocado$Average_Price_Missing, 
+                            by = list(avocado$Region), FUN = sum)
+colnames(region_missing) <- c("Region", "Missing_Count")
+print(region_missing)
+```
+
+### Uniform Missing Values Across Regions:
+
+* The fact that each region has the same number of missing values suggests a consistent data collection or recording issue. It could indicate periods when data wasn't recorded or a systematic error.
+
+```{r}
+# Checking if missing data is associated with specific years
+year_missing <- aggregate(avocado$Average_Price_Missing, 
+                          by = list(avocado$Year), FUN = sum)
+colnames(year_missing) <- c("Year", "Missing_Count")
+print(year_missing)
+```
+
+### Yearly Trends in Missing Data:
+
+* The consistent pattern of 540 missing values in 2015, 2016, and 2017 suggests a systematic issue during these years.
+* The lower number in 2018 (108) might indicate a shorter period or an improved data collection process.
+
+
+```{r}
+# Checking if missing data is associated with type of avocado
+type_missing <- aggregate(avocado$Average_Price_Missing, 
+                          by = list(avocado$Type), FUN = sum)
+colnames(type_missing) <- c("Type", "Missing_Count")
+print(type_missing)
+```
+
+### Uniform Missing Values Across Types:
+* Both conventional and organic avocados have the same number of missing values, pointing to a similar issue across types. This might be due to similar data collection methods or processes for both types.
+
+### Imputing missing values with the median: 
+* Resilience to Outliers: The median is less sensitive to extreme values and outliers, making it a more robust choice for imputation when data distribution isn't symmetrical.
+* Common for Skewed Data: Since the data is slightly right skewed, the median is generally a more reliable measure of central tendency.
+
+```{r}
+# Calculating the median of the Average_Price column
+median_price <- median(avocado$Average_Price, na.rm = TRUE)
+
+# Replacing the missing values in Average_Price with the calculated median
+avocado$Average_Price[is.na(avocado$Average_Price)] <- median_price
+```
+
+
+```{r}
+# Counting the missing values in 'Average_Price'
+missing_count <- sum(is.na(avocado$Average_Price))
+cat("Total missing values in 'Average_Price':", missing_count, "\n")
+
+# Checking Overall distribution of 'Average_Price' again
+summary(avocado$Average_Price)
+```
+Here we can see that the average price for an avocado is **1.403**. The min price is **0.440** and the Max is **3.250**
+
+```{r}
+# Checking the summary of 'Total_volume'
+summary(avocado$Total_Volume)
+```
+The dataset has a wide range of total volumes, with a median of 107,377, a mean of 850,644, and a maximum of 62,505,647, indicating a significant variation in the total volume of avocados sold.
+
+
+```{r}
+# Displaying unique values in 'Region' to understand their format
+unique(avocado$Region)
+```
+The regions "Northeast", "SouthCentral", "SouthEast", "West", "Midsouth" and "TotalUS" are identified as potentially encompassing the entire US or a group of regions, which could distort total volume counts. To address this, these regions will be removed from further analysis to ensure accuracy in volume calculations and regional comparisons.
+
+```{r}
+# Filtering out the regions to be removed
+filtered_data <- avocado %>%
+  filter(Region != "Northeast" &
+         Region != "SouthCentral" &
+         Region != "Southeast" &
+         Region != "West" &
+         Region != "Midsouth" &
+         Region != "TotalUS"
+         )
+```
+
+```{r}
+# Renaming the filtered dataset to 'avocado' for further analysis
+avocado <- filtered_data
+```
+
+```{r}
+# Checking unique values in 'Type' to understand their format
+unique(avocado$Type)
+```
+# Train-Test Split
+
+```{r}
+avocado_train <- avocado[avocado$Date <= as.Date("2017-12-31"), ]
+avocado_test <- avocado[avocado$Date > as.Date("2017-12-31"), ]
+```
+
+
+```{r}
+# Checking the dimensions of the training set
+dim(avocado_train)
+
+# Checking the dimensions of the test set
+dim(avocado_test)
+```
+
+
+```{r, fig.height=3, fig.align='center', warning=FALSE}
+# Density plot of avocado prices by type
+density_plot <- ggplot(avocado_train, aes(x = Average_Price, fill = Type)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Avocado Price by Type (Density Plot)", 
+       x = "Average Price (USD)", y = "Density") + 
+  theme_minimal() +
+  scale_fill_manual(values = c("conventional" = "blue", "organic" = "green"))
+
+# Displaying the plot
+print(density_plot)
+```
+The price of organic avocados are higher compared to conventional avocados
+
+```{r, fig.width=4, fig.height=4, fig.align='center', warning=FALSE}
+# Calculating the percentage of total volume by type
+
+# Grouping the data by Type and calculating the sum of Total_Volume
+volume_by_type <- aggregate(Total_Volume ~ Type, data = avocado_train, sum)
+
+# Calculating the total volume across all types
+total_volume <- sum(volume_by_type$Total_Volume)
+
+# Calculating the percentage for each type
+volume_by_type$Percentage <- (volume_by_type$Total_Volume / total_volume) * 100
+
+# Pie Chart of Total Volume by Type
+pie_chart <- ggplot(volume_by_type, aes(x = "", y = Total_Volume, fill = Type)) +
+  geom_bar(width = 1, stat = "identity") +
+  coord_polar("y", start = 0) +
+  labs(title = "Proportion of Total Volume by Type") +
+  theme_void() +
+  geom_text(aes(label = sprintf("%.1f%%", (Total_Volume / sum(Total_Volume)) * 100)),
+            position = position_stack(vjust = 0.5), color = "white", size = 3) +
+  scale_fill_manual(values = c("conventional" = "skyblue", "organic" = "orange"))
+
+print(pie_chart)
+```
+The vast majority (97.2%) of avocados sold are conventional, while organic avocados represent only 2.8%, however, organic avocados cost on average 0.50 USD more than conventional ones, highlighting a significant price gap.
+
+```{r, fig.height=3, fig.align='center', warning=FALSE}
+# Calculating the distribution of average price of the avocado based on year and type
+ggplot(avocado_train, aes(x = Type, y = Average_Price)) +
+  geom_boxplot(aes(colour = as.factor(Year))) +
+  xlab("Type") +
+  ylab("Average Price")
+```
+The boxplot visualization of avocado prices reveals a notable increase in median prices in 2017 compared to other years. Additionally, organic avocado prices exhibit greater variability, as indicated by slightly larger box sizes across all years compared to conventional avocados. Overall, this suggests a dynamic pricing trend and greater price dispersion for organic avocados over the analyzed years.
+
+
+```{r, fig.height=3, fig.align='center', warning=FALSE}
+# Average price of avocado by type (monthly)
+avocado_month <- ggplot(avocado_train, aes(x=Month, y=Average_Price, fill=Type)) + 
+  geom_col(position="dodge") + 
+  theme(legend.position = "none") +
+  scale_x_continuous(breaks = 1:12, labels = 1:12)
+
+# Average price of avocado by type (yearly)
+avocado_year <- ggplot(avocado_train, aes(x=Year, y=Average_Price, fill=Type)) + 
+  geom_col(position="dodge")
+
+# Combine the plots
+gridExtra::grid.arrange(avocado_month, avocado_year, ncol=2)
+
+```
+The combined monthly and yearly plots illustrate significant price disparities between organic and conventional avocados. Monthly trends reveal synchronous movements in prices between the two types, suggesting shared influences. Seasonal fluctuations may impact avocado prices, evidenced by concurrent increases and decreases. Price escalations in certain years may stem from various factors, such as supply-demand dynamics or environmental conditions, warranting further investigation into their causes.
+
+```{r, fig.height=3, fig.align='center', warning=FALSE}
+# Checking the trend of average price over years
+ggplot(data = avocado_train, aes(x = Date, y = Average_Price, color = Type)) + 
+  geom_line(position = position_dodge(width = 0.5)) + 
+  geom_smooth(method = "gam", formula = y ~ s(x, bs = "cs")) +
+  xlab("Year") + 
+  ylab("Average Price")
+```
+The graph demonstrates a strong correlation between the price trends of both organic and conventional avocados, corroborating previous observations. The parallel movement of average price trend lines suggests a synchronized response to external factors affecting the avocado market. This alignment underscores the interdependence between the pricing dynamics of both avocado types.
+
+```{r, fig.height=3, fig.align='center', warning=FALSE}
+# Grouping by year and calculating the total volume for each year
+total_volume_by_year <- aggregate(Total_Volume ~ format(Date, "%Y"), 
+                                  avocado_train, sum)
+
+# Renaming the columns for better readability
+names(total_volume_by_year) <- c("Year", "Total_Volume")
+
+# Plotting the total volume by year
+volume_plot <- ggplot(total_volume_by_year, aes(x = as.numeric(Year), 
+                                                y = Total_Volume, fill = factor(Year))) +
+  geom_col(position = "dodge") + 
+  labs(title = "Total Volume of Avocados by Year", x = "Year", y = "Total Volume") +
+  theme_minimal() + 
+  scale_fill_manual(values = c("#c7e9c0", "#74c476", "#31a354", "#006d2c"))
+
+print(volume_plot)
+```
+It seems 2017 has the highest volume compared to others.
+
+```{r, fig.height=4, fig.align='center', warning=FALSE}
+# Getting the top 10 regions by total volume
+top_10_regions <- aggregate(Total_Volume ~ Region, avocado_train, sum)
+top_10_regions <- top_10_regions[order(-top_10_regions$Total_Volume), ][1:10, ]
+
+# Bar plot of total volume by region
+bar_plot <- ggplot(top_10_regions, aes(x = reorder(Region, -Total_Volume), 
+                                       y = Total_Volume, fill = Region)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Total Volume of Avocados by Region (Top 10)", 
+       x = "Region", y = "Total Volume") +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  # Add this line to rotate x-axis labels
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+print(bar_plot)
+```
+It seems California, GreatLakes and LosAngeles regions are having more volume of sales.
+
+### Finding the regions with the maximum and minimum total volume
+
+```{r}
+# Finding the region with the maximum total volume
+max_total_volume <- avocado_train %>% 
+  group_by(Region) %>% 
+  summarise(max_total_volume = sum(Total_Volume)) %>% 
+  arrange(desc(max_total_volume)) %>% 
+  slice(1)
+
+# Finding the region with the minimum total volume
+min_total_volume <- avocado_train %>% 
+  group_by(Region) %>% 
+  summarise(min_total_volume = sum(Total_Volume)) %>% 
+  arrange(min_total_volume) %>% 
+  slice(1)
+
+# Printing the results
+max_total_volume
+min_total_volume
+```
+It seems **California has the maximum** total volume and **Syracuse has the minimum** total volume. From now we will consider these two regions for the analysis based on their type.
+
+### Creating Train and Test Sets of California and Syracuse datasets of both types for further anaysis:
+
+```{r}
+# Extracting the organic and conventional avocado datasets for California region
+organic_california_train <- avocado_train[avocado_train$Type == "organic" & 
+                            avocado_train$Region == "California", 
+                            c("Date", "Average_Price", "Type", 
+                              "Total_Volume", "Region", "Month", "Year")]
+conventional_california_train <- avocado_train[avocado_train$Type == "conventional" & 
+                                 avocado_train$Region == "California", 
+                                 c("Date", "Average_Price", "Type", 
+                                   "Total_Volume", "Region", "Month", "Year")]
+organic_california_test <- avocado_test[avocado_test$Type == "organic" & 
+                           avocado_test$Region == "California", 
+                           c("Date", "Average_Price", "Type", 
+                             "Region", "Month", "Year")]
+conventional_california_test <- avocado_test[avocado_test$Type == "conventional" & 
+                                avocado_test$Region == "California", 
+                                c("Date", "Average_Price", "Type", 
+                                  "Total_Volume", "Region", "Month", "Year")]
+
+# Extracting the organic and conventional avocado datasets for Syracuse region
+organic_syracuse_train <- avocado_train[avocado_train$Type == "organic" & 
+                          avocado_train$Region == "Syracuse", 
+                          c("Date", "Average_Price", "Type", 
+                            "Total_Volume", "Region", "Month", "Year")]
+conventional_syracuse_train <- avocado_train[avocado_train$Type == "conventional" & 
+                               avocado_train$Region == "Syracuse", 
+                               c("Date", "Average_Price", "Type", 
+                                 "Total_Volume", "Region", "Month", "Year")]
+organic_syracuse_test <- avocado_test[avocado_test$Type == "organic" & 
+                         avocado_test$Region == "Syracuse", 
+                         c("Date", "Average_Price", "Type", 
+                           "Total_Volume", "Region", "Month", "Year")]
+conventional_syracuse_test <- avocado_test[avocado_test$Type == "conventional" & 
+                              avocado_test$Region == "Syracuse", 
+                              c("Date", "Average_Price", "Type", 
+                                "Total_Volume", "Region", "Month", "Year")]
+```
+
+# Exploratory Data Analysis
+
+### Monthly distribution of number of avocados sold in syracuse region:
+
+```{r}
+# Organic and Conventional Syracuse ranking per month
+org_syra_months <- organic_syracuse_train %>%
+ group_by(Type,Month, Year) %>%
+summarise(total_volume = sum(Total_Volume), 
+          average_price = mean(Average_Price), .groups = 'drop') %>%
+arrange(Year, desc(total_volume))
+
+con_syra_months <- conventional_syracuse_train %>%
+ group_by(Type,Month, Year) %>%
+summarise(total_volume = sum(Total_Volume), 
+          average_price = mean(Average_Price), .groups = 'drop') %>%
+arrange(Year, desc(total_volume))
+```
+
+### Plotting Monthly Sales in Syracuse region:
+```{r, fig.height=3, fig.align='center', warning=FALSE}
+org_avacados_syr<-ggplot(org_syra_months, aes(x = factor(Month, levels = 1:12), 
+                            y = total_volume, fill = Type)) +
+  geom_col(position = "dodge") + 
+  labs(title = "Monthly Organic Avocados Sales in Syracuse", 
+       x = "Months", y = "Volume") + 
+  theme(axis.text.x = element_text( hjust = 1), title = element_text(size=6)) +
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) +
+  scale_fill_manual(values = c("#85e085", "#e6e600")) +
+  guides(fill = FALSE)
+
+con_avacados_syr<-ggplot(con_syra_months, aes(x = factor(Month, levels = 1:12), 
+                            y = total_volume, fill = Type)) +
+  geom_col(position = "dodge") + 
+  labs(title = "Monthly Conventional Avocados Sales in Syracuse", 
+       x = "Months", y = "Volume") + 
+  theme(axis.text.x = element_text( hjust = 1), title = element_text(size=6)) +
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) +
+  scale_fill_manual(values = c("#e6e600","#85e085" )) +
+  guides(fill = FALSE)
+
+# Combine the plots
+gridExtra::grid.arrange(org_avacados_syr, con_avacados_syr, ncol=2)
+```
+Most of the organic avocados are sold during October to December months for organic type & April and May months for conventional type in Syracus region
+
+### Monthly distribution of number of avocados sold in California region:
+
+```{r}
+# organic and conventional syracuse ranking per month
+org_cal_months <- organic_california_train %>%
+ group_by(Type,Month, Year) %>%
+summarise(total_volume = sum(Total_Volume), 
+          average_price = mean(Average_Price), .groups = 'drop') %>%
+arrange(Year, desc(total_volume))
+
+con_cal_months <- conventional_california_train %>%
+ group_by(Type,Month, Year) %>%
+summarise(total_volume = sum(Total_Volume), 
+          average_price = mean(Average_Price), .groups = 'drop') %>%
+arrange(Year, desc(total_volume))
+```
+
+### Plotting Monthly Sales in California region:
+
+```{r, fig.height=3, fig.align='center', warning=FALSE}
+org_avacados_cal<-ggplot(org_cal_months, aes(x = factor(Month, levels = 1:12), 
+                           y = total_volume, fill = Type)) +
+  geom_col(position = "dodge") + 
+  labs(title = "Monthly Organic Avocados Sales in California", 
+       x = "Months", y = "Volume") + 
+  theme(axis.text.x = element_text( hjust = 1), title = element_text(size=6)) +
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) +
+  scale_fill_manual(values = c("#85e085", "#e6e600")) +
+  guides(fill = FALSE)
+
+con_avacados_cal<-ggplot(con_cal_months, aes(x = factor(Month, levels = 1:12), 
+                           y = total_volume, fill = Type)) +
+  geom_col(position = "dodge") + 
+  labs(title = "Monthly Conventional Avocados Sales in California", 
+       x = "Months", y = "Volume") + 
+  theme(axis.text.x = element_text( hjust = 1), title = element_text(size=6)) +
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) +
+  scale_fill_manual(values = c("#e6e600","#85e085" )) +
+  guides(fill = FALSE)
+
+# Combine the plots
+gridExtra::grid.arrange(org_avacados_cal, con_avacados_cal, ncol=2)
+```
+Most of the organic avocados are sold during April to July months for organic type & January, May and December months for conventional type in California region
+
+### Plotting for comparison for Syracuse Region:
+
+```{r, message = FALSE}
+# Conventional avocados in Syracuse
+conventional_syracuse_price <- conventional_syracuse_train %>% 
+  ggplot(aes(x = Date, y = Average_Price)) + 
+  geom_line(color = "blue") + geom_smooth(color = "red") +
+  labs(title = "Conventional Avocados Syracuse") +
+  xlab("Date") + ylab("Average Price")
+
+conventional_syracuse_vol <- conventional_syracuse_train %>% 
+  ggplot(aes(x = Date, y = Total_Volume)) + 
+  geom_bar(stat = "identity", fill = "blue") + geom_smooth(color = "red") +
+  xlab("Date") + ylab("Total Volume")
+
+# Organic avocados in Syracuse
+organic_syracuse_price <- organic_syracuse_train %>% 
+  ggplot(aes(x = Date, y = Average_Price)) + 
+  geom_line(color = "green") + geom_smooth(color = "red") + 
+  labs(title = "Organic Avocados Syracuse") +
+  xlab("Date") + ylab("Average Price")
+
+organic_syracuse_vol <- organic_syracuse_train %>% 
+  ggplot(aes(x = Date, y = Total_Volume)) + 
+  geom_bar(stat = "identity", fill = "green") + geom_smooth(color = "red") +
+  xlab("Date") + ylab("Total Volume")
+
+# Combining the plots using plot_grid from gridExtra
+gridExtra::grid.arrange(conventional_syracuse_price, organic_syracuse_price, 
+                        conventional_syracuse_vol, organic_syracuse_vol, ncol = 2)
+```
+The above graphs reveals that Syracuse, with the lowest avocado sales volume, exhibits higher price sensitivity, indicating lower demand. Specifically, organic avocado prices in Syracuse notably decreased from mid-2017, coinciding with a significant rise in total sales volume. A similar trend is observed in conventional avocados in Syracuse, to a lesser extent.
+
+### Plotting for comparison for California Region:
+
+```{r, message = FALSE}
+# Conventional avocados in California
+conventional_cali_price <- conventional_california_train %>% 
+  ggplot(aes(x = Date, y = Average_Price)) + 
+  geom_line(color = "blue") + geom_smooth(color = "red") + 
+  labs(title = "Conventional Avocados California") + 
+  xlab("Date") + ylab("Average Price")
+
+conventional_cali_vol <- conventional_california_train %>% 
+  ggplot(aes(x = Date, y = Total_Volume)) + 
+  geom_bar(stat = "identity", fill = "blue") + geom_smooth(color = "red") + 
+  xlab("Date") + ylab("Total Volume")
+
+# Organic avocados in California  
+organic_cali_price <- organic_california_train %>% 
+  ggplot(aes(x = Date, y = Average_Price)) + 
+  geom_line(color = "green") + geom_smooth(color = "red") + 
+  labs(title = "Organic Avocados California") + 
+  xlab("Date") + ylab("Average Price")
+
+organic_cali_vol <- organic_california_train %>% 
+  ggplot(aes(x = Date, y = Total_Volume)) + 
+  geom_bar(stat = "identity", fill = "green") + geom_smooth(color = "red") + 
+  xlab("Date") + ylab("Total Volume")
+
+# Combine the plots using plot_grid from gridExtra
+gridExtra::grid.arrange(conventional_cali_price, organic_cali_price, 
+                        conventional_cali_vol, organic_cali_vol, ncol = 2)
+```
+The analysis suggests that while California, the region with the highest avocado sales volume, exhibits some price sensitivity, it is not as pronounced as in the lower-volume Syracuse market. In California, the inverse relationship between average price and total volume is present but less drastic compared to Syracuse, where the trends are more closely correlated. This indicates that the California avocado market is less sensitive to price fluctuations, likely due to its larger overall demand and supply.
+
+### Plotting the Average Price of avocados for California: 
+
+```{r, fig.height=3, fig.align='center', warning=FALSE}
+# Creating a combined dataset for plotting
+combined_data <- rbind(organic_california_train, conventional_california_train)
+combined_data$Type <- factor(combined_data$Type, levels = c("organic", "conventional"))
+
+# Plotting the average price of avocados for California
+ggplot(combined_data, aes(x = Date, y = Average_Price, color = Type)) +
+  geom_line() +
+  labs(title = "Price of Avocados Over Time in california region", 
+       x = "Date", y = "Average Price") +
+  scale_color_manual(values = c("#006400", "#8B4513")) +
+  theme_minimal()
+```
+It seems there is same pattern for both organic and conventional type in California region.
+
+### Plotting the Average Price of avocados for Syracuse: 
+
+```{r, fig.height=3, fig.align='center', warning=FALSE}
+# Creating a combined dataset for plotting
+combined_data <- rbind(organic_syracuse_train, conventional_syracuse_train)
+combined_data$Type <- factor(combined_data$Type, levels = c("organic", "conventional"))
+
+# Plotting the average price of avocados for Syracuse
+ggplot(combined_data, aes(x = Date, y = Average_Price, color = Type)) +
+  geom_line() +
+  labs(title = "Price of Avocados Over Time in Syracuse region", 
+       x = "Date", y = "Average Price") +
+  scale_color_manual(values = c("#006400", "#8B4513")) +
+  theme_minimal()
+```
+It seems there is same pattern with very slight changes for both organic and conventional type in Syracuse region
+
+**Given the consistent pattern observed for both organic and conventional types within the California and Syracuse regions and price sensitivity of the organic type, we will focus on modeling the average unit price of organic avocados in these regions. This approach leverages the similar trends exhibited in both types within each region, allowing for a more generalized modeling strategy applicable to the entire region. By consolidating the analysis to the region level and the organic type, we can simplify the modeling process and potentially improve forecasting accuracy by capturing broader market dynamics.**
+
+
+# Modeling
+
+### Modeling the avocado sales for California and Syracuse regions for Organic type
+
+```{r}
+# Selecting the relevant columns
+avocado_data <- avocado[, c("Date", "Average_Price", "Type", "Total_Volume", 
+                            "Region", "Month", "Year")]
+
+# Select data based on region and type
+california_organic <- avocado_data[avocado_data$Region == "California" & 
+                                     avocado_data$Type == "organic", ]
+syracuse_organic <- avocado_data[avocado_data$Region == "Syracuse" & 
+                                   avocado_data$Type == "organic", ]
+
+# Sort the data by date
+california_data <- california_organic[order(california_organic$Date), ]
+syracuse_data <- syracuse_organic[order(syracuse_organic$Date), ]
+```
+
+```{r}
+# Splitting the data into training and test sets
+# California organic data
+california_train<-california_data[california_data$Date <= as.Date("2017-12-31"), ]
+california_test<-california_data[california_data$Date > as.Date("2017-12-31"), ][1:10, ]
+
+# Syracuse organic data
+syracuse_train<-syracuse_data[syracuse_data$Date <= as.Date("2017-12-31"), ]
+syracuse_test<-syracuse_data[syracuse_data$Date > as.Date("2017-12-31"), ][1:10, ]
+```
+
+## Dataset : California Region and Organic Type
+
+```{r, fig.height=3}
+# Converting the filtered data to a time series object 
+california_ts <- ts(california_train$Average_Price, start = c(2015, 1), frequency = 52)
+
+# Visual inspection with the correct x-axis range
+plot(california_ts)
+```
+The dataset seems non stationary.
+
+###  Decomposition of Time Series
+
+```{r, fig.height=4}
+stl_cal <- stl(california_ts, t.window = 7, s.window = "periodic", robust = TRUE)
+plot(stl_cal)
+```
+
+Prices of avocado in california generally follows an upward trend and has a seasonal pattern.
+
+### Checking Stationarity using ADF and KPSS Tests
+
+#### The ADF Test:
+
+    - Null hypothesis (H0): The time series is non-stationary.
+    - Alternative hypothesis (H1): The time series is stationary.
+
+If the p-value of the ADF test is less than the chosen significance level (e.g., 0.05), we can reject the null hypothesis and conclude that the time series is stationary.
+
+```{r, warning=FALSE}
+# Augmented Dickey-Fuller (ADF) test
+adf.test(california_ts)
+```
+#### The KPSS Test:
+
+    - Null hypothesis (H0): The time series is stationary.
+    - Alternative hypothesis (H1): The time series is non-stationary.
+
+If the p-value from the KPSS test is less than the chosen significance level (e.g., 0.05), then the null hypothesis is rejected, indicating that the time series is non-stationary.
+
+```{r, warning=FALSE}
+# Performing KPSS test
+kpss_test <- kpss.test(california_ts)
+kpss_test
+```
+The above two tests confirms that california_ts series is not stationary
+
+###  Making the Time Series Stationary:
+
+```{r, warning=FALSE}
+# Performing differencing to make the time series stationary
+california_diff <- diff(california_ts)
+```
+
+```{r, warning=FALSE}
+# Checking the stationarity of the differenced series
+adf_test_diff <- adf.test(california_diff)
+adf_test_diff
+
+# Performing KPSS test
+kpss_test <- kpss.test(california_diff)
+kpss_test
+```
+### Test Result:
+
+* ADF: Since the p-value is less than the chosen significance level (e.g., 0.05), we can reject the null hypothesis and conclude that the differenced time series is stationary.
+
+* KPSS: Since the p-value is greater than the chosen significance level (e.g., 0.05), we cannot reject the null hypothesis and can conclude that the differenced time series is stationary.
+
+The above two tests confirms that the time series is stationary now with differencing.
+
+### Plotting California after differencing
+
+```{r}
+plot(california_diff)
+```
+
+## ARIMA Model for California region:
+
+```{r}
+# Fitting an ARIMA model to the training data
+arima_model_cal <- auto.arima(california_ts)
+
+# Generating forecasts for the test data
+arima_forecast_cal <- forecast(arima_model_cal, h = 10)
+```
+
+
+```{r, fig.height=4}
+# Plotting the ARIMA forecast
+plot(arima_forecast_cal, main = "ARIMA Model Forecast for Avocado Prices in California")
+```
+
+
+```{r, fig.height=4}
+# Checking the residuals
+residuals_arima_cal <- residuals(arima_model_cal)
+checkresiduals(residuals_arima_cal)
+```
+
+The Ljung-Box test conducted on the residuals of the ARIMA model for California indicates a statistically significant result with a p-value of 0.02239, suggesting that there is evidence of autocorrelation in the residuals up to lag 31.
+
+
+```{r}
+# Evaluating the accuracy on the test data
+accuracy_arima <- accuracy(arima_forecast_cal, california_test$Average_Price)
+print(accuracy_arima)
+```
+The above ARIMA model's Root Mean Square Error (RMSE) on the test set is 0.183, which indicates a relatively low error in predicting the average price of avocados in California. The Mean Absolute Percentage Error (MAPE) is 10.02, suggesting that the model's forecasts are, on average, about 10% off from the actual prices. These metrics suggest that while the ARIMA model provides reasonably accurate forecasts, there is still room for improvement, especially in terms of reducing the percentage error.
+
+## Simple Exponential Smoothing (SES) Model for California region:
+
+```{r, fig.height=4}
+# Fitting an SES model to the training data
+ses_model_cal <- ses(california_ts, alpha=0.8, h = 10)
+
+# Plotting the SES forecast
+plot(ses_model_cal, main = "SES Model Forecast for Avocado Prices in California")
+```
+
+```{r, fig.height=4}
+# Checking the residuals
+residuals_ses_cal <- residuals(ses_model_cal)
+checkresiduals(residuals_ses_cal)
+```
+The above Ljung-Box test conducted on the residuals of the SES model for California has a p-value of 0.3922, which is greater than the typical significance level of 0.05. This suggests that there is no statistically significant evidence of autocorrelation in the residuals up to lag 31, indicating that the model has adequately captured the temporal dependencies in the data.
+
+
+```{r}
+# Evaluating the accuracy on the test data
+accuracy_ses_cal <- accuracy(ses_model_cal, california_test$Average_Price)
+print(accuracy_ses_cal)
+```
+
+The SES model's Root Mean Square Error (RMSE) on the test set is 0.19, indicating a moderate level of error in predicting the average price of avocados in California. The Mean Absolute Percentage Error (MAPE) is 10.4, suggesting that the model's forecasts are, on average, about 10.4% off from the actual prices. These metrics suggest that the SES model provides a slightly less accurate forecast compared to the ARIMA model, with a slightly higher error in both RMSE and MAPE. 
+
+## Holt-Winters Model for California region:
+
+```{r, fig.height=4}
+# Fitting a Holt-Winters model to the training data 
+hw_model_cal <- HoltWinters(california_ts, seasonal = "multiplicative")
+
+# Generating forecasts for the test data
+hw_forecast_cal <- forecast(hw_model_cal, h = 10)
+
+  # Plotting the Holt-Winters forecast
+plot(hw_forecast_cal, main = "Holt-Winters Forecast for Avocado Prices in California")
+```
+
+```{r, fig.height=4}
+# Checking the residuals
+residuals_hw_cal <- residuals(hw_model_cal)
+checkresiduals(residuals_hw_cal)
+```
+The Ljung-Box test conducted on the residuals of the Holt-Winters (HW) model for California has a p-value of 0.07023, which is greater than the typical significance level of 0.05. This suggests that there is no statistically significant evidence of autocorrelation in the residuals up to lag 21, indicating that the HW model has adequately captured the temporal dependencies in the data.
+
+```{r}
+# Evaluate the accuracy on the test data
+accuracy_hw_cal <- accuracy(hw_forecast_cal,california_test$Average_Price)
+
+print(accuracy_hw_cal)
+```
+
+The Holt-Winters model's Root Mean Square Error (RMSE) on the test set is 0.199, which suggests a moderate level of error in predicting the average price of avocados in California. The Mean Absolute Percentage Error (MAPE) is 11.00, indicating that the model's forecasts are, on average, about 11% off from the actual prices. These metrics suggest that the Holt-Winters model provides a slightly less accurate forecast compared to the ARIMA and SES models, with a slightly higher error in both RMSE and MAPE. 
+
+## Neural Network Model for California region:
+
+
+```{r, fig.height=4}
+# Fit a neural network model to the training data
+nn_model_cal <- nnetar(california_ts)
+
+# Generate forecasts for the test data
+nn_forecast_cal <- forecast(nn_model_cal, h = 10)
+
+# Plot the neural network forecast
+plot(nn_forecast_cal, main = "Neural Network Forecast for Avocado Prices in California")
+```
+
+```{r, fig.height=4}
+# Checking the residuals
+residuals_nn_cal <- residuals(nn_model_cal)
+checkresiduals(residuals_nn_cal)
+```
+The Ljung-Box test conducted on the residuals of the neural network (NN) model for California yields a p-value of 0.6593, indicating no statistically significant evidence of autocorrelation in the residuals up to lag 31. This suggests that the NN model adequately captures the temporal dependencies in the data, with the residuals exhibiting randomness and no significant autocorrelation patterns.
+
+```{r}
+# Evaluate the accuracy on the test data
+accuracy_nn_cal <- accuracy(nn_forecast_cal, california_test$Average_Price)
+print(accuracy_nn_cal)
+```
+
+The Neural Network model's Root Mean Square Error (RMSE) on the test set is 0.177, indicating a relatively low error in predicting the average price of avocados in California. The Mean Absolute Percentage Error (MAPE) is 8.45, suggesting that the model's forecasts are, on average, about 8.45% off from the actual prices. These metrics suggest that the Neural Network model provides a highly accurate forecast compared to the other models, with a lower error in both RMSE and MAPE. This generalizability indicates that the Neural Network model is effective in capturing the trends and patterns in the data, making it a strong candidate for forecasting avocado prices in California.
+
+### Model Selection for California Region
+
+* **ARIMA and SES Models:** Both models have similar RMSE values, with the SES model slightly outperforming the ARIMA model in terms of RMSE. However, both models have a relatively high MAPE, indicating that their forecasts are, on average, about 10% off from the actual prices. This suggests that while these models capture some aspects of the data's trend and seasonality, they may not be as effective in reducing the percentage error in forecasts.
+* **Holt-Winters Model:** This model has a slightly higher RMSE and MAPE compared to the ARIMA and SES models, indicating a slightly less accurate forecast.
+* **Neural Network Model:** This model has the lowest RMSE and MAPE among all models, suggesting that it provides the most accurate forecast for the California region. The significantly lower MAPE indicates that the model's forecasts are, on average, about 8.45% off from the actual prices, which is the lowest among all models.
+
+Based on the comparison, the **Neural Network Model is the most suitable** choice for forecasting avocado prices in the California region. It provides the most accurate forecasts with the lowest RMSE and MAPE, indicating that it is effective in capturing the trends and patterns in the data and reducing the percentage error in forecasts. This model's generalizability and accuracy make it the best choice for this application.
+
+### Underlying Assumptions of the selected neural network model and residual analysis for California Region
+
+* **Independence of Observations:** Neural networks generally perform better with randomly sampled, independent, and identically distributed (i.i.d.) data.
+* **Normalization of Input Data:** Scaling or normalizing input data improves neural network performance by preventing certain features from dominating others.
+* **Feature Representation:** Providing meaningful and relevant features is crucial for effective learning in neural networks, which rely on hierarchical feature representation.
+* **Sufficient Data:** Large and diverse datasets are necessary for neural networks to generalize well and avoid overfitting.
+* **Training Parameters:** Careful selection of optimization algorithms, learning rates, and other hyperparameters is essential for optimizing neural network performance during training.
+  
+To validate these assumptions, a residual analysis was conducted using the Ljung-Box test. The test results, with a p-value of 0.6593 indicate that the residuals are not autocorrelated at the 95% confidence level, suggesting that the model's assumptions are likely satisfied. The model's df (degrees of freedom) is 0, and a total of 31 lags were used in the test, which aligns with the model's complexity and the nature of the data.
+
+### Weaknesses of the Analysis
+
+While the Neural Network model provided the most accurate forecasts for the California region, there are several potential weaknesses in this analysis:
+
+  * **Complexity and Interpretability:** The model's complexity may make it difficult to interpret and explain the forecasts, which could be a limitation in decision-making processes.
+  * **Computational Resources:** The model's computational requirements may be higher compared to simpler models, potentially limiting its applicability in resource-constrained environments.
+  * **Overfitting:** There is a risk of overfitting, especially if the model is trained on a limited dataset. This could lead to poor generalization to new data.
+
+## Dataset : Syracuse Region and Organic Type
+
+```{r, fig.height=4}
+# Converting the data to a time series object
+syracuse_ts  <- ts(syracuse_train$Average_Price, start = c(2015, 1), frequency = 52)
+
+# Visual inspection
+plot(syracuse_ts )
+```
+The dataset seems non stationary.
+
+###  Decomposition of Time Series
+
+```{r, fig.height=4}
+stl_syr <- stl(syracuse_ts, t.window = 7, s.window = "periodic", robust = TRUE)
+plot(stl_syr)
+```
+
+Prices of avocado in syracuse generally follows an upward trend and has a seasonal pattern.
+
+### Checking Stationarity using ADF and KPSS Tests
+
+### The ADF Test:
+
+    - Null hypothesis (H0): The time series is non-stationary.
+    - Alternative hypothesis (H1): The time series is stationary.
+
+If the p-value of the ADF test is less than the chosen significance level (e.g., 0.05), we can reject the null hypothesis and conclude that the time series is stationary.
+
+
+```{r, warning=FALSE}
+# Augmented Dickey-Fuller (ADF) test for Syracuse region
+adf_test_syr <- adf.test(syracuse_ts)
+adf_test_syr
+```
+
+### The KPSS Test:
+
+    - Null hypothesis (H0): The time series is stationary.
+    - Alternative hypothesis (H1): The time series is non-stationary.
+
+If the p-value from the KPSS test is less than the chosen significance level (e.g., 0.05), then the null hypothesis is rejected, indicating that the time series is non-stationary.
+
+```{r, warning=FALSE}
+# Performing KPSS test for Syracuse region
+kpss_test_syr <- kpss.test(syracuse_ts)
+kpss_test_syr
+```
+In the above two tests, KPSS test results in stationary and ADF test results in non-stationarity. Hence we will try to do differencing to get the consistent results from both the tests.
+
+
+### Making the Time Series Stationary:
+
+```{r, warning=FALSE}
+# Performing differencing to make the time series stationary
+syracuse_diff <- diff(syracuse_ts)
+```
+
+```{r, warning=FALSE}
+# Checking the stationarity of the differenced series
+adf_test_diff_syr <- adf.test(syracuse_diff)
+adf_test_diff_syr
+
+# Perform KPSS test for differenced series (Syracuse)
+kpss_test_diff_syr <- kpss.test(syracuse_diff)
+kpss_test_diff_syr
+```
+
+### Test Result:
+
+* ADF: Since the p-value is less than the chosen significance level (e.g., 0.05), we can reject the null hypothesis and conclude that the differenced time series is stationary.
+
+* KPSS: Since the p-value is greater than the chosen significance level (e.g., 0.05), we cannot reject the null hypothesis and can conclude that the differenced time series is stationary.
+
+The above two tests confirms that the time series is stationary now with differencing.
+
+### Plotting Syracuse after differencing
+
+```{r}
+plot(syracuse_diff)
+```
+
+## ARIMA model for Syracuse region:
+
+```{r, fig.height=4}
+# Fit an ARIMA model to the training data for Syracuse region
+arima_model_syr <- auto.arima(syracuse_ts)
+
+# Generate forecasts for the test data for Syracuse region
+arima_forecast_syr <- forecast(arima_model_syr, h = 10)
+
+# Plot the ARIMA forecast for Syracuse region
+plot(arima_forecast_syr, main = "ARIMA Forecast for Avocado Prices in Syracuse")
+```
+
+
+```{r, fig.height=4}
+# Checking the residuals for Syracuse region
+residuals_arima_syr <- residuals(arima_model_syr)
+checkresiduals(residuals_arima_syr)
+```
+The Ljung-Box test on the residuals of the ARIMA model for the Syracuse region yields a p-value of 0.4367, indicating no statistically significant evidence of autocorrelation in the residuals up to lag 31. This suggests that the ARIMA model adequately captures the temporal dependencies in the data, with the residuals exhibiting randomness and no significant autocorrelation patterns.
+
+
+```{r}
+# Evaluating the accuracy on the test data for Syracuse region
+accuracy_arima_syr <- accuracy(arima_forecast_syr, syracuse_test$Average_Price)
+print(accuracy_arima_syr)
+```
+The above ARIMA model's Root Mean Square Error (RMSE) on the Syracuse test set is 0.257, indicating a moderate level of error in predicting the average price of avocados in Syracuse. The Mean Absolute Percentage Error (MAPE) is 19.23, suggesting that the model's forecasts are, on average, about 19.23% off from the actual prices. These metrics suggest that the ARIMA model provides a less accurate forecast for the Syracuse region compared to the training set, with a significantly higher error in both RMSE and MAPE. This generalizability indicates that the ARIMA model may not be as effective in capturing the specific trends and patterns in the Syracuse data, highlighting the importance of selecting models that are well-suited to the characteristics of the data being forecasted.
+
+## Simple Exponential Smoothing (SES) Model for Syracuse region:
+
+```{r, fig.height=4}
+# Fitting an SES model to the training data for Syracuse region
+ses_model_syr <- ses(syracuse_ts, alpha=0.8 , h = 10)
+
+# Plotting the SES forecast for Syracuse region
+plot(ses_model_syr)
+```
+
+
+```{r, fig.height=4}
+# Checking the residuals for Syracuse region
+residuals_ses_syr <- residuals(ses_model_syr)
+checkresiduals(residuals_ses_syr)
+```
+The above Ljung-Box test on the residuals of the Simple Exponential Smoothing (SES) model for the Syracuse region yields a p-value of 0.1881, which is greater than the typical significance level of 0.05. This suggests that there is no statistically significant evidence of autocorrelation in the residuals up to lag 31, indicating that the SES model adequately captures the temporal dependencies in the data.
+
+
+```{r}
+# Evaluating the accuracy on the test data for Syracuse region
+accuracy_ses_syr <- accuracy(ses_model_syr, syracuse_test$Average_Price)
+print(accuracy_ses_syr)
+```
+
+The SES model's Root Mean Square Error (RMSE) on the Syracuse test set is 0.083, indicating a relatively low error in predicting the average price of avocados in Syracuse. The Mean Absolute Percentage Error (MAPE) is 4.28, suggesting that the model's forecasts are, on average, about 4.28% off from the actual prices. These metrics suggest that the SES model provides a highly accurate forecast for the Syracuse region, with a lower error in both RMSE and MAPE compared to the ARIMA model. This generalizability indicates that the SES model is effective in capturing the trends and patterns in the Syracuse data, making it a strong candidate for forecasting avocado prices in this region.
+
+## Holt-Winters Model for Syracuse region:
+
+```{r, fig.height=4}
+# Fitting a Holt-Winters model to the training data for Syracuse region 
+hw_model_syr <- HoltWinters(syracuse_ts, seasonal = "multiplicative")
+# Generating forecasts for the test data for Syracuse region
+hw_forecast_syr <- forecast(hw_model_syr, h = 10)
+# Plotting the Holt-Winters forecast for Syracuse region
+plot(hw_forecast_syr, main = "Holt-Winters Forecast for Avocado Prices in Syracuse")
+```
+
+```{r, fig.height=4}
+# Checking the residuals
+residuals_hw_syr <- residuals(hw_model_syr)
+checkresiduals(residuals_hw_syr)
+```
+The above Ljung-Box test conducted on the residuals of the Holt-Winters (HW) model for the Syracuse region yields a p-value of 0.0009196, which is less than the typical significance level of 0.05. This suggests that there is statistically significant evidence of autocorrelation in the residuals up to lag 21, indicating that the HW model may not have fully captured all the temporal dependencies present in the data.
+
+```{r}
+# Evaluate the accuracy on the test data for Syracuse region
+accuracy_hw_syr <- accuracy(hw_forecast_syr, syracuse_test$Average_Price)
+print(accuracy_hw_syr)
+```
+The Holt-Winters model's Root Mean Square Error (RMSE) on the Syracuse test set is 0.197, indicating a moderate level of error in predicting the average price of avocados in Syracuse. The Mean Absolute Percentage Error (MAPE) is 13.08, suggesting that the model's forecasts are, on average, about 13.08% off from the actual prices. These metrics suggest that the Holt-Winters model provides a slightly less accurate forecast for the Syracuse region compared to the training set, with a slightly higher error in both RMSE and MAPE. This generalizability indicates that while the Holt-Winters model may be useful for capturing some aspects of the data's trend and seasonality in Syracuse, it may not be as effective as the SES model in reducing the percentage error in forecasts.
+
+## Neural Network Model for Syracuse region:
+
+```{r, fig.height=4}
+# Fit a neural network model to the training data for Syracuse region
+nn_model_syr <- nnetar(syracuse_ts)
+
+# Generate forecasts for the test data for Syracuse region
+nn_forecast_syr <- forecast(nn_model_syr, h = 10)
+
+# Plot the neural network forecast for Syracuse region
+plot(nn_forecast_syr, main = "Neural Network Forecast for Avocado Prices in Syracuse")
+```
+
+```{r, fig.height=4}
+# Checking the residuals for Syracuse region
+residuals_nn_syr <- residuals(nn_model_syr)
+checkresiduals(residuals_nn_syr)
+```
+The p-value of the above Ljung-Box test is 0.785, which is greater than the typical significance level of 0.05, indicating that there is no statistically significant evidence of autocorrelation in the residuals up to lag 31. This suggests that the NN model has adequately captured the temporal dependencies in the data for the Syracuse region, and the residuals can be considered as white noise, satisfying the assumption of independent and identically distributed residuals.
+
+```{r}
+# Evaluate the accuracy on the test data for Syracuse region
+accuracy_nn_syr <- accuracy(nn_forecast_syr, syracuse_test$Average_Price)
+print(accuracy_nn_syr)
+
+```
+The Neural Network model's Root Mean Square Error (RMSE) on the Syracuse test set is 0.272, indicating a moderate level of error in predicting the average price of avocados in Syracuse. The Mean Absolute Percentage Error (MAPE) is 20.467, suggesting that the model's forecasts are, on average, about 20.46% off from the actual prices. These metrics suggest that the Neural Network model provides a less accurate forecast for the Syracuse region compared to the training set, with a significantly higher error in both RMSE and MAPE. This generalizability indicates that the Neural Network model may not be as effective in capturing the specific trends and patterns in the Syracuse data.
+
+### Model Selection for Syracuse Region
+
+* **ARIMA Model:** This model has the highest RMSE and MAPE among all models, indicating a significantly less accurate forecast for Syracuse region. The high MAPE suggests that the model's forecasts are, on average, about 19.23% off from actual prices.
+
+* **SES Model:** This model has the lowest RMSE and MAPE among all models, suggesting that it provides the most accurate forecast for the Syracuse region. The significantly lower MAPE indicates that the model's forecasts are, on average, about 4.28% off from the actual prices, which is the lowest among all models.
+
+* **Holt-Winters Model:** This model has a slightly higher RMSE and MAPE compared to the SES model but lower than the ARIMA and Neural Network models. The MAPE is 13.08%, which is higher than SES model.
+
+* **Neural Network Model:** This model has a slightly higher RMSE and MAPE compared to the SES model but lower than the ARIMA and Neural Network models. The MAPE is 20.46%, which is higher than the other models.
+
+Based on the evaluation metrics provided for the Syracuse region, the **Simple Exponential Smoothing Model shows the best performance** with a Root Mean Square Error (RMSE) of 0.083 and a Mean Absolute Percentage Error (MAPE) of 4.28%. This indicates that the SES model is the most accurate in predicting the average price of avocados in Syracuse, with a relatively low error in both RMSE and MAPE. The generalizability of the SES model suggests that it is effective in capturing the trends and patterns specific to Syracuse data, making it the most suitable model for forecasting avocado prices in this region.
+
+### Underlying Assumptions of the selected SES model and residual analysis for Syracuse Region
+
+The chosen SES model operates under several key assumptions, including:
+
+  * **Stationarity:** The time series data should be stationary, meaning its properties do not depend on the time at which the series is observed.
+  * **No Seasonality:** The model assumes that data does not exhibit any seasonal patterns.
+  * **No Trend:** The model assumes that the data does not exhibit any trend.
+
+To validate these assumptions, a residual analysis was conducted using the Ljung-Box test. The test results, with a p-value of 0.1881, indicate that the residuals are not autocorrelated at the 95% confidence level, suggesting that the model's assumptions are likely satisfied. The model's df (degrees of freedom) is 0, and a total of 31 lags were used in the test, which aligns with the model's simplicity and the nature of the data.
+
+### Weaknesses of the Analysis
+
+While the SES model provided the most accurate forecasts for the Syracuse region, there are several potential weaknesses in this analysis:
+
+  * **Assumption of No Seasonality and Trend:** The model's performance may be limited if the actual data exhibits seasonal patterns or a trend that model does not account for.
+  * **Simplicity:** The SES model's simplicity may not capture more complex relationships in the data, potentially leading to less accurate forecasts in scenarios where more nuanced modeling is required.
+  * **Generalizability:** The model's performance in the Syracuse region may not generalize well to other regions or types of data, highlighting the importance of cross-validation and testing the model on multiple datasets.
+  * **Model Selection Criteria:** The choice of the SES model was based on RMSE and MAPE, which may not always reflect most critical aspects of forecasting accuracy, such as model's ability to handle outliers or its predictive power in different market conditions.
+
+
